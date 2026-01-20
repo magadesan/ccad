@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Top 10 Similar Houses</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 1rem; background: #fafafa; }
+input, button, textarea { padding: 0.5rem; margin: 0.25rem 0.5rem 0.25rem 0; font-size: 0.9rem; }
+
+.table-container { overflow-x: auto; width: 100%; margin-top: 1rem; border: 1px solid #ccc; }
+table { border-collapse: separate; border-spacing: 0; min-width: 800px; width: auto; }
+th, td { border: 1px solid #ccc; padding: 0.6rem; white-space: nowrap; }
+th { background: #f2f2f2; font-weight: bold; position: sticky; top: 0; z-index: 1; }
+
+/* Sticky Column 1 (Row Headers) */
+.sticky {
+  position: sticky;
+  left: 0;
+  background: #fff2b3 !important;
+  z-index: 10; /* Higher than top header */
+  min-width: 120px;
+  max-width: 120px;
+  box-shadow: 2px 0 5px -2px rgba(0,0,0,0.2);
+}
+
+/* Sticky Column 2 (Reference Property) */
+.sticky2 {
+  position: sticky;
+  left: 120px; /* Must match the width of the first sticky column */
+  background: #f9f9f9 !important;
+  z-index: 9;
+  min-width: 120px;
+  max-width: 120px;
+  box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1);
+}
+
+/* Intersecting header (Top-Left corner) */
+th.sticky { z-index: 12; }
+th.sticky2 { z-index: 11; }
+
+td.diff { background-color: #ffc0cb; }
+td.numeric { text-align: right; }
+
+#status { margin-top: 1rem; color: #555; font-style: italic; }
+</style>
+</head>
+<body>
+
+<h2>Top 10 Similar Houses</h2>
+<label>Target PropID: <input id="propid" placeholder="e.g. 1234567890"></label>
+<button id="runBtn">Find Similar Houses</button>
+<br>
+<label>Custom Algorithm (JSON):</label><br>
+<textarea id="customAlgo" rows="5" cols="60" placeholder='{"weights":{"area":0.4,"market":0.2,"land":0.1,"year":0.3}}'></textarea>
+<div id="status"></div>
+
+<div class="table-container">
+  <table id="results" style="display:none">
+    <thead id="thead"></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script type="module">
+import { getSimilarProperties } from './similarityEngine.js';
+
+const runBtn = document.getElementById("runBtn");
+const status = document.getElementById("status");
+const table = document.getElementById("results");
+const thead = document.getElementById("thead");
+const tbody = document.getElementById("tbody");
+const customAlgoInput = document.getElementById("customAlgo");
+
+let allProps = [];
+let refProp;
+
+runBtn.addEventListener("click", async () => {
+  const propid = document.getElementById("propid").value.trim();
+  if (!propid) { alert("Please enter a PropID"); return; }
+
+  status.textContent = "Fetching similar properties...";
+  thead.innerHTML = "";
+  tbody.innerHTML = "";
+  table.style.display = "none";
+
+  let customAlgo = null;
+  if(customAlgoInput.value.trim()) {
+    try {
+      customAlgo = JSON.parse(customAlgoInput.value);
+    } catch(e) {
+      alert("Invalid JSON. Using defaults.");
+      customAlgo = null;
+    }
+  }
+
+  try {
+    const result = await getSimilarProperties({ propid, limit: 10, customAlgo });
+
+    if (!result.comps || !result.comps.length) {
+      status.textContent = `No suitable comparables found for ${propid}.`;
+      return;
+    }
+
+    refProp = result.target;
+    allProps = [refProp, ...result.comps];
+    buildTable();
+    table.style.display = "table";
+    status.textContent = `Showing top ${result.comps.length} comparables in ${result.legalabssubcode || 'Subdivision'}.`;
+  } catch(err) {
+    console.error(err);
+    status.textContent = "Error: " + err.message;
+  }
+});
+
+function buildTable() {
+  const fields = ["propid","imprvmainarea","prevvalmarket","prevvalland","imprvyearbuilt","similarity"];
+  const fieldNames = ["Property","Area","Market Value","Land Value","Year Built","Similarity"];
+
+  // --- HEADER ---
+  const headerRow = document.createElement("tr");
+  
+  // Header Corner (Label Column)
+  const thLabel = document.createElement("th");
+  thLabel.classList.add("sticky");
+  thLabel.textContent = "Attribute";
+  headerRow.appendChild(thLabel);
+
+  // Header Property IDs
+  allProps.forEach((p, i) => {
+    const th = document.createElement("th");
+    if(i === 0) th.classList.add("sticky2"); // Target Prop
+    th.textContent = p.propid;
+    headerRow.appendChild(th);
+  });
+  thead.innerHTML = "";
+  thead.appendChild(headerRow);
+
+  // --- ROWS ---
+  tbody.innerHTML = "";
+  fields.forEach((field, rowIndex) => {
+    const tr = document.createElement("tr");
+    
+    // Row Title (Column 1)
+    const thSide = document.createElement("th");
+    thSide.classList.add("sticky");
+    thSide.textContent = fieldNames[rowIndex];
+
+    if(rowIndex > 0) {
+      thSide.style.cursor = "pointer";
+      thSide.title = "Sort by this field";
+      thSide.addEventListener("click", () => sortColumnsByRow(field));
+    }
+    tr.appendChild(thSide);
+
+    // Row Data
+    allProps.forEach((p, i) => {
+      const td = document.createElement("td");
+      
+      // Formatting
+      if(field === "similarity") {
+        td.textContent = (p[field] != null) ? parseFloat(p[field]).toFixed(4) : "1.0000";
+        td.classList.add("numeric");
+      } else {
+        td.textContent = p[field] ?? "N/A";
+        if (!isNaN(p[field]) && field !== "propid") td.classList.add("numeric");
+      }
+
+      // Highlight differences from Reference
+      if(field !== "propid" && i > 0 && p[field] != refProp[field]) {
+        td.classList.add("diff");
+      }
+
+      // Sticky Column 2 (The Target House data)
+      if(i === 0) {
+        td.classList.add("sticky2");
+      }
+      
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+function sortColumnsByRow(field) {
+  const comps = allProps.slice(1);
+  const isNumeric = comps.every(p => !isNaN(parseFloat(p[field])));
+
+  comps.sort((a, b) => {
+    let aVal = a[field], bVal = b[field];
+    if(isNumeric){ aVal = parseFloat(aVal); bVal = parseFloat(bVal); }
+    if(aVal == null) aVal = isNumeric ? -Infinity : "";
+    if(bVal == null) bVal = isNumeric ? -Infinity : "";
+    return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+  });
+
+  allProps = [refProp, ...comps];
+  buildTable();
+}
+</script>
+</body>
+</html>
