@@ -1,0 +1,19 @@
+{
+  "weights": {
+    "area": 0.4,
+    "market": 0.2,
+    "land": 0.1,
+    "year": 0.3
+  },
+  "cutoffs": {
+    "areaPct": 0.1,
+    "marketPct": 0.2,
+    "landPct": 0.3,
+    "yearDiff": 10
+  },
+  "priceBias": {
+    "enabled": true,
+    "weight": 0.15,
+    "fullBiasAt": 50
+  }
+}
